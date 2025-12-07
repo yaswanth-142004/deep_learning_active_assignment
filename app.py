@@ -10,6 +10,7 @@ import gzip
 import shutil
 import requests
 from pathlib import Path
+import gdown
 
 # Set page configuration
 st.set_page_config(
@@ -23,33 +24,6 @@ st.set_page_config(
 # For Dropbox: Replace ?dl=0 with ?dl=1
 # For GitHub Releases: Use the release asset URL
 MODEL_URL = os.environ.get('MODEL_URL', 'https://drive.google.com/uc?export=download&id=147a4ElVj6Pg2m9k26REa98iCrzxKb4Hx')  # Set this in Streamlit Cloud secrets or environment
-
-def download_model_from_google_drive(file_id, destination):
-    """Download large file from Google Drive"""
-    def get_confirm_token(response):
-        for key, value in response.cookies.items():
-            if key.startswith('download_warning'):
-                return value
-        return None
-
-    def save_response_content(response, destination):
-        CHUNK_SIZE = 32768
-        with open(destination, "wb") as f:
-            for chunk in response.iter_content(CHUNK_SIZE):
-                if chunk:
-                    f.write(chunk)
-
-    URL = "https://docs.google.com/uc?export=download"
-    session = requests.Session()
-
-    response = session.get(URL, params={'id': file_id}, stream=True)
-    token = get_confirm_token(response)
-
-    if token:
-        params = {'id': file_id, 'confirm': token}
-        response = session.get(URL, params=params, stream=True)
-
-    save_response_content(response, destination)
 
 def download_model(url, destination):
     """Download model file from URL"""
@@ -68,7 +42,9 @@ def download_model(url, destination):
                 st.error("Invalid Google Drive URL format")
                 return False
             
-            download_model_from_google_drive(file_id, destination)
+            # Use gdown for reliable Google Drive downloads
+            download_url = f'https://drive.google.com/uc?id={file_id}'
+            gdown.download(download_url, destination, quiet=False)
             return True
         else:
             # Regular download for other URLs
