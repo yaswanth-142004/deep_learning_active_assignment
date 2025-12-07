@@ -1,5 +1,5 @@
 import os
-# MUST be set before importing tensorflow
+# Force legacy Keras (must come before imports)
 os.environ['TF_USE_LEGACY_KERAS'] = '1'
 
 import streamlit as st
@@ -8,8 +8,16 @@ import gdown
 from PIL import Image
 import json
 import tensorflow as tf
-from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing import image
+
+# Try safe imports
+try:
+    from tensorflow.keras.models import load_model
+    from tensorflow.keras.preprocessing import image
+except:
+    # Fallback to direct legacy import if the bridge fails
+    import tf_keras as keras
+    from tf_keras.models import load_model
+    from tf_keras.preprocessing import image
 
 # Set page configuration
 st.set_page_config(
@@ -18,7 +26,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Configuration
+# --- Configuration ---
 MODEL_FILE_ID = '1w3avcoCrXwvHTaETNfvXZlfqbXPhoBS2'
 MODEL_DIR = 'wildlife_models'
 MODEL_FILENAME = 'final_wildlife_model.keras'
@@ -26,11 +34,9 @@ MODEL_PATH = os.path.join(MODEL_DIR, MODEL_FILENAME)
 CLASS_NAMES_PATH = os.path.join(MODEL_DIR, 'class_names.json')
 
 def get_model_path():
-    """Checks if model exists locally. If not, downloads it from Google Drive."""
     if not os.path.exists(MODEL_DIR):
         os.makedirs(MODEL_DIR)
 
-    # 1. Check Local
     if os.path.exists(MODEL_PATH):
         if os.path.getsize(MODEL_PATH) > 10 * 1024 * 1024:
             return MODEL_PATH
@@ -40,8 +46,7 @@ def get_model_path():
             except:
                 pass
     
-    # 2. Download if not found
-    st.info("Model not found locally. Downloading from Google Drive...")
+    st.info("Downloading model from Google Drive...")
     try:
         url = f'https://drive.google.com/uc?id={MODEL_FILE_ID}'
         gdown.download(url, MODEL_PATH, quiet=False)
@@ -50,7 +55,6 @@ def get_model_path():
             st.success("Download complete!")
             return MODEL_PATH
         return None
-            
     except Exception as e:
         st.error(f"Error downloading model: {e}")
         return None
@@ -62,8 +66,8 @@ def load_classification_model():
         return None
         
     try:
-        # Load model with safe_mode=False for older custom layers
-        model = tf.keras.models.load_model(model_path, compile=False, safe_mode=False)
+        # Load model using the imported load_model function
+        model = load_model(model_path, compile=False)
         
         model.compile(
             optimizer='adam',
@@ -72,7 +76,7 @@ def load_classification_model():
         )
         return model
     except Exception as e:
-        st.error(f"Error loading Keras model: {e}")
+        st.error(f"Error loading model: {e}")
         return None
 
 @st.cache_data
@@ -127,15 +131,18 @@ def main():
         with col2:
             if st.button("Classify Image", type="primary"):
                 with st.spinner("Analyzing..."):
-                    img = Image.open(uploaded_file)
-                    img_array = preprocess_image(img)
-                    pred_class, conf, top_5 = predict_image(model, img_array, class_names)
-                    
-                    st.success(f"Prediction: **{pred_class}**")
-                    st.info(f"Confidence: **{conf:.2f}%**")
-                    st.write("**Top Predictions:**")
-                    for name, score in top_5:
-                        st.write(f"- {name}: {score:.1f}%")
+                    try:
+                        img = Image.open(uploaded_file)
+                        img_array = preprocess_image(img)
+                        pred_class, conf, top_5 = predict_image(model, img_array, class_names)
+                        
+                        st.success(f"Prediction: **{pred_class}**")
+                        st.info(f"Confidence: **{conf:.2f}%**")
+                        st.write("**Top Predictions:**")
+                        for name, score in top_5:
+                            st.write(f"- {name}: {score:.1f}%")
+                    except Exception as e:
+                        st.error(f"Prediction error: {e}")
 
 if __name__ == "__main__":
     main()
