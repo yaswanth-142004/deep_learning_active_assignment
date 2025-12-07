@@ -23,7 +23,8 @@ st.set_page_config(
 # For Google Drive: Use direct download link
 # For Dropbox: Replace ?dl=0 with ?dl=1
 # For GitHub Releases: Use the release asset URL
-MODEL_URL = os.environ.get('MODEL_URL', 'https://drive.google.com/file/d/1w3avcoCrXwvHTaETNfvXZlfqbXPhoBS2/view?usp=sharing')  # Set this in Streamlit Cloud secrets or environment
+# IMPORTANT: Add .keras or .h5 at the end to specify format
+MODEL_URL = os.environ.get('MODEL_URL', 'https://drive.google.com/file/d/1w3avcoCrXwvHTaETNfvXZlfqbXPhoBS2/view?usp=sharing.keras')  # Set this in Streamlit Cloud secrets or environment
 
 def download_model(url, destination):
     """Download model file from URL"""
