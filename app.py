@@ -1,23 +1,17 @@
 import os
-# [IMPORTANT] Set these environment variables BEFORE importing tensorflow
-# This forces the use of legacy Keras to match your older model file
-os.environ['TF_USE_LEGACY_KERAS'] = '1'
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-
 import streamlit as st
 import numpy as np
 import gdown
 from PIL import Image
 import json
 
-# Try importing TensorFlow and handle the version mismatch gracefully
-try:
-    import tensorflow as tf
-    from tensorflow.keras.models import load_model
-    from tensorflow.keras.preprocessing import image
-except ImportError:
-    st.error("TensorFlow not found. Please add 'tensorflow' to requirements.txt")
-    st.stop()
+# Set environment variables for compatibility
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+
+# Direct import (No try-except, so we can see the real error if one exists)
+import tensorflow as tf
+from tensorflow.keras.models import load_model
+from tensorflow.keras.preprocessing import image
 
 # Set page configuration
 st.set_page_config(
@@ -26,7 +20,8 @@ st.set_page_config(
     layout="wide"
 )
 
-# Configuration
+# --- Configuration ---
+# File ID from your link: https://drive.google.com/file/d/1w3avcoCrXwvHTaETNfvXZlfqbXPhoBS2/view
 MODEL_FILE_ID = '1w3avcoCrXwvHTaETNfvXZlfqbXPhoBS2'
 MODEL_DIR = 'wildlife_models'
 MODEL_FILENAME = 'final_wildlife_model.keras'
@@ -34,37 +29,41 @@ MODEL_PATH = os.path.join(MODEL_DIR, MODEL_FILENAME)
 CLASS_NAMES_PATH = os.path.join(MODEL_DIR, 'class_names.json')
 
 def get_model_path():
-    """Checks if model exists locally. If not, downloads it from Google Drive."""
+    """
+    Checks if model exists locally. If not, downloads it from Google Drive.
+    """
     if not os.path.exists(MODEL_DIR):
         os.makedirs(MODEL_DIR)
 
     # 1. Check Local
     if os.path.exists(MODEL_PATH):
-        if os.path.getsize(MODEL_PATH) > 10 * 1024 * 1024: # Check if > 10MB
+        # Check if file is valid (larger than 10MB)
+        if os.path.getsize(MODEL_PATH) > 10 * 1024 * 1024:
             return MODEL_PATH
         else:
-            st.warning("Local model file found but seems corrupted (too small). Redownloading...")
+            st.warning("Local model file seems corrupted. Redownloading...")
             try:
                 os.remove(MODEL_PATH)
             except:
                 pass
     
     # 2. Download if not found
-    with st.spinner("Model not found locally. Downloading from Google Drive (100MB)..."):
-        try:
-            url = f'https://drive.google.com/uc?id={MODEL_FILE_ID}'
-            gdown.download(url, MODEL_PATH, quiet=False)
-            
-            if os.path.exists(MODEL_PATH):
-                st.success("Download complete!")
-                return MODEL_PATH
-            else:
-                st.error("Download failed. File not created.")
-                return None
-                
-        except Exception as e:
-            st.error(f"Error downloading model: {e}")
+    st.info("Model not found locally. Downloading from Google Drive...")
+    try:
+        # Using gdown for reliable Drive downloads
+        url = f'https://drive.google.com/uc?id={MODEL_FILE_ID}'
+        gdown.download(url, MODEL_PATH, quiet=False)
+        
+        if os.path.exists(MODEL_PATH):
+            st.success("Download complete!")
+            return MODEL_PATH
+        else:
+            st.error("Download failed. File not created.")
             return None
+            
+    except Exception as e:
+        st.error(f"Error downloading model: {e}")
+        return None
 
 @st.cache_resource
 def load_classification_model():
@@ -73,7 +72,7 @@ def load_classification_model():
         return None
         
     try:
-        # Attempt to load the model
+        # Load the model
         model = tf.keras.models.load_model(model_path, compile=False)
         
         # Recompile for inference
@@ -83,32 +82,18 @@ def load_classification_model():
             metrics=['accuracy']
         )
         return model
-    except ValueError as e:
-        if "batch_normalization" in str(e):
-            st.error("⚠️ **Compatibility Error Detected**")
-            st.warning("""
-            The model was trained with an older version of TensorFlow/Keras.
-            
-            **To fix this on Streamlit Cloud:**
-            1. Create a file named `requirements.txt` in your repo (if not exists).
-            2. Add exactly this line: `tensorflow<2.16`
-            3. Reboot the app.
-            """)
-            st.code("tensorflow<2.16", language="text")
-        st.error(f"Error details: {e}")
-        return None
     except Exception as e:
-        st.error(f"Error loading model: {e}")
+        st.error(f"Error loading Keras model: {e}")
         return None
 
 @st.cache_data
 def load_class_names():
-    # Placeholder: Ensure this JSON exists or uses a fallback
+    # Placeholder: In a real app, you should download class_names.json too
     if os.path.exists(CLASS_NAMES_PATH):
         with open(CLASS_NAMES_PATH, 'r') as f:
             return json.load(f)
     else:
-        # Fallback list for demo purposes
+        # Fallback classes
         return {str(i): f"Class {i}" for i in range(100)}
 
 def preprocess_image(img, target_size=(224, 224)):
@@ -128,6 +113,7 @@ def predict_image(model, img_array, class_names):
     idx_str = str(predicted_class_idx)
     predicted_class_name = class_names.get(idx_str, f"Unknown ({idx_str})")
     
+    # Get top 5
     top_5_indices = np.argsort(predictions[0])[-5:][::-1]
     top_5_predictions = []
     for idx in top_5_indices:
@@ -141,38 +127,49 @@ def predict_image(model, img_array, class_names):
 def main():
     st.title("🦁 Wildlife Image Classifier")
     st.markdown("Upload an image of wildlife to classify it.")
+    st.markdown("---")
     
-    model = load_classification_model()
+    # Load model
+    with st.spinner("Loading model resources..."):
+        model = load_classification_model()
         
     if model is None:
-        st.stop()
+        st.error("Model could not be loaded. Please check the logs.")
+        return
 
     class_names = load_class_names()
     st.sidebar.success("✅ Model Ready")
     
+    # File uploader
     uploaded_file = st.file_uploader("Choose an image...", type=['jpg', 'jpeg', 'png'])
     
     if uploaded_file is not None:
         col1, col2 = st.columns([1, 1])
         
         with col1:
-            st.image(uploaded_file, caption="Uploaded Image", use_column_width=True)
+            st.subheader("📸 Uploaded Image")
+            img = Image.open(uploaded_file)
+            st.image(img, use_column_width=True)
         
         with col2:
+            st.subheader("🎯 Results")
             if st.button("Classify Image", type="primary"):
                 with st.spinner("Analyzing..."):
-                    img = Image.open(uploaded_file)
-                    img_array = preprocess_image(img)
-                    pred_class, conf, top_5 = predict_image(model, img_array, class_names)
-                    
-                    st.success(f"Prediction: **{pred_class}**")
-                    st.info(f"Confidence: **{conf:.2f}%**")
-                    st.progress(min(conf/100, 1.0))
-                    
-                    st.markdown("---")
-                    st.write("**Top Predictions:**")
-                    for name, score in top_5:
-                        st.write(f"- {name}: {score:.1f}%")
+                    try:
+                        img_array = preprocess_image(img)
+                        pred_class, conf, top_5 = predict_image(model, img_array, class_names)
+                        
+                        st.success(f"Prediction: **{pred_class}**")
+                        st.info(f"Confidence: **{conf:.2f}%**")
+                        st.progress(min(conf/100, 1.0))
+                        
+                        st.markdown("---")
+                        st.markdown("**Top Predictions:**")
+                        for name, score in top_5:
+                            st.write(f"- {name}: {score:.1f}%")
+                            
+                    except Exception as e:
+                        st.error(f"Prediction Error: {e}")
 
 if __name__ == "__main__":
     main()
