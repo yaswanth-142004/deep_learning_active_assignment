@@ -4,3 +4,4 @@ numpy
 pillow
 requests
 gdown
+h5py

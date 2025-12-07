@@ -114,37 +114,58 @@ def load_classification_model():
         return None
     
     try:
-        # Try loading with compile=False to avoid optimizer issues
-        model = load_model(model_path, compile=False)
+        import h5py
         
-        # Recompile the model with a simple loss function
+        # First, try to load with safe_mode=False (Keras 3 compatibility)
+        try:
+            with h5py.File(model_path, 'r') as f:
+                # Check if it's a Keras 2 or Keras 3 format
+                pass
+            
+            model = tf.keras.models.load_model(
+                model_path,
+                compile=False,
+                safe_mode=False
+            )
+            st.success("Model loaded successfully with safe_mode=False!")
+        except:
+            # Fallback: Load with default settings
+            model = tf.keras.models.load_model(model_path, compile=False)
+            st.success("Model loaded successfully!")
+        
+        # Recompile the model with fresh optimizer
         model.compile(
-            optimizer='adam',
+            optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001),
             loss='sparse_categorical_crossentropy',
             metrics=['accuracy']
         )
         return model
+        
     except Exception as e:
-        st.error(f"Error loading model: {str(e)}")
-        # Try alternative loading method
-        try:
-            import h5py
-            # Load with custom settings
-            model = tf.keras.models.load_model(
-                model_path,
-                custom_objects=None,
-                compile=False,
-                safe_mode=False
-            )
-            model.compile(
-                optimizer='adam',
-                loss='sparse_categorical_crossentropy',
-                metrics=['accuracy']
-            )
-            return model
-        except Exception as e2:
-            st.error(f"Alternative loading also failed: {str(e2)}")
-            return None
+        error_msg = str(e)
+        st.error(f"Error loading model: {error_msg}")
+        
+        # Provide helpful error message
+        if "Invalid dtype" in error_msg or "tuple" in error_msg:
+            st.warning("""
+            **Model Compatibility Issue Detected**
+            
+            The model was saved with an older TensorFlow/Keras version and is incompatible 
+            with the current version. To fix this:
+            
+            1. Re-save the model using TensorFlow 2.16+ with:
+               ```python
+               model.save('model.h5', save_format='h5')
+               # or
+               model.save('model.keras')  # Recommended for Keras 3
+               ```
+            
+            2. Or export only the weights:
+               ```python
+               model.save_weights('model_weights.h5')
+               ```
+            """)
+        return None
 
 @st.cache_data
 def load_class_names():
