@@ -1,23 +1,15 @@
-import os
-# Force legacy Keras (must come before imports)
-os.environ['TF_USE_LEGACY_KERAS'] = '1'
-
 import streamlit as st
 import numpy as np
 import gdown
 from PIL import Image
 import json
-import tensorflow as tf
+import os
 
-# Try safe imports
-try:
-    from tensorflow.keras.models import load_model
-    from tensorflow.keras.preprocessing import image
-except:
-    # Fallback to direct legacy import if the bridge fails
-    import tf_keras as keras
-    from tf_keras.models import load_model
-    from tf_keras.preprocessing import image
+# Standard TensorFlow imports 
+# (This will now work because requirements.txt forces version 2.15)
+import tensorflow as tf
+from tensorflow.keras.models import load_model
+from tensorflow.keras.preprocessing import image
 
 # Set page configuration
 st.set_page_config(
@@ -34,10 +26,12 @@ MODEL_PATH = os.path.join(MODEL_DIR, MODEL_FILENAME)
 CLASS_NAMES_PATH = os.path.join(MODEL_DIR, 'class_names.json')
 
 def get_model_path():
+    """Checks if model exists locally. If not, downloads it from Google Drive."""
     if not os.path.exists(MODEL_DIR):
         os.makedirs(MODEL_DIR)
 
     if os.path.exists(MODEL_PATH):
+        # Check if file is valid (larger than 10MB)
         if os.path.getsize(MODEL_PATH) > 10 * 1024 * 1024:
             return MODEL_PATH
         else:
@@ -66,9 +60,11 @@ def load_classification_model():
         return None
         
     try:
-        # Load model using the imported load_model function
+        # Load the model
+        # We don't need complex legacy flags because we pinned keras==2.15.0
         model = load_model(model_path, compile=False)
         
+        # Recompile for inference
         model.compile(
             optimizer='adam',
             loss='sparse_categorical_crossentropy',
@@ -77,6 +73,7 @@ def load_classification_model():
         return model
     except Exception as e:
         st.error(f"Error loading model: {e}")
+        st.error("Tip: Try rebooting the app if you just updated requirements.txt")
         return None
 
 @st.cache_data
@@ -116,11 +113,14 @@ def main():
     st.title("🦁 Wildlife Image Classifier")
     st.markdown("Upload an image of wildlife to classify it.")
     
-    model = load_classification_model()
+    with st.spinner("Loading model..."):
+        model = load_classification_model()
+    
     if model is None:
         st.stop()
 
     class_names = load_class_names()
+    st.sidebar.success("✅ Model Ready")
     
     uploaded_file = st.file_uploader("Choose an image...", type=['jpg', 'jpeg', 'png'])
     
@@ -142,7 +142,7 @@ def main():
                         for name, score in top_5:
                             st.write(f"- {name}: {score:.1f}%")
                     except Exception as e:
-                        st.error(f"Prediction error: {e}")
+                        st.error(f"Prediction Error: {e}")
 
 if __name__ == "__main__":
     main()
