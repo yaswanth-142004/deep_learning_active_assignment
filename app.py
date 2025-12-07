@@ -69,38 +69,53 @@ def download_model(url, destination):
 
 def decompress_model_if_needed():
     """Decompress the model file if it doesn't exist"""
-    model_path = 'wildlife_models/final_wildlife_model.h5'
+    # Try both .keras and .h5 formats
+    keras_model_path = 'wildlife_models/final_wildlife_model.keras'
+    h5_model_path = 'wildlife_models/final_wildlife_model.h5'
     compressed_path = 'wildlife_models/final_wildlife_model.h5.gz'
+    keras_compressed_path = 'wildlife_models/final_wildlife_model.keras.gz'
     
     # Create directory if it doesn't exist
     Path('wildlife_models').mkdir(exist_ok=True)
     
-    # If model doesn't exist
-    if not os.path.exists(model_path):
-        # Try to decompress if compressed version exists
-        if os.path.exists(compressed_path):
-            with st.spinner('Decompressing model file...'):
-                with gzip.open(compressed_path, 'rb') as f_in:
-                    with open(model_path, 'wb') as f_out:
-                        shutil.copyfileobj(f_in, f_out)
-            return True
-        # Try to download if URL is provided
-        elif MODEL_URL:
-            with st.spinner('Downloading model file (this may take a few minutes)...'):
-                if MODEL_URL.endswith('.gz'):
-                    # Download compressed and decompress
-                    if download_model(MODEL_URL, compressed_path):
-                        with gzip.open(compressed_path, 'rb') as f_in:
-                            with open(model_path, 'wb') as f_out:
-                                shutil.copyfileobj(f_in, f_out)
-                        return True
-                else:
-                    # Download directly
-                    return download_model(MODEL_URL, model_path)
-        else:
-            st.error("Model file not found. Please upload the model or set MODEL_URL.")
-            return False
-    return True
+    # Check if either format exists
+    if os.path.exists(keras_model_path) or os.path.exists(h5_model_path):
+        return True
+    
+    # If model doesn't exist, try to decompress or download
+    if os.path.exists(compressed_path):
+        with st.spinner('Decompressing model file...'):
+            with gzip.open(compressed_path, 'rb') as f_in:
+                with open(h5_model_path, 'wb') as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+        return True
+    elif os.path.exists(keras_compressed_path):
+        with st.spinner('Decompressing model file...'):
+            with gzip.open(keras_compressed_path, 'rb') as f_in:
+                with open(keras_model_path, 'wb') as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+        return True
+    elif MODEL_URL:
+        with st.spinner('Downloading model file (this may take a few minutes)...'):
+            # Determine destination based on URL
+            if '.keras' in MODEL_URL:
+                destination = keras_model_path if not MODEL_URL.endswith('.gz') else keras_compressed_path
+            else:
+                destination = h5_model_path if not MODEL_URL.endswith('.gz') else compressed_path
+            
+            if download_model(MODEL_URL, destination):
+                # Decompress if needed
+                if destination.endswith('.gz'):
+                    final_path = destination[:-3]  # Remove .gz extension
+                    with gzip.open(destination, 'rb') as f_in:
+                        with open(final_path, 'wb') as f_out:
+                            shutil.copyfileobj(f_in, f_out)
+                return True
+    else:
+        st.error("Model file not found. Please upload the model or set MODEL_URL.")
+        return False
+    
+    return False
 
 # Load the model and class names
 @st.cache_resource
@@ -109,29 +124,32 @@ def load_classification_model():
     if not decompress_model_if_needed():
         return None
     
-    model_path = 'wildlife_models/final_wildlife_model.h5'
+    # Try .keras format first (newer, more compatible)
+    keras_model_path = 'wildlife_models/final_wildlife_model.keras'
+    h5_model_path = 'wildlife_models/final_wildlife_model.h5'
+    
+    model_path = keras_model_path if os.path.exists(keras_model_path) else h5_model_path
+    
     if not os.path.exists(model_path):
         return None
     
     try:
         import h5py
         
-        # First, try to load with safe_mode=False (Keras 3 compatibility)
+        st.info(f"Loading model from: {os.path.basename(model_path)}")
+        
+        # Try loading with safe_mode=False for compatibility
         try:
-            with h5py.File(model_path, 'r') as f:
-                # Check if it's a Keras 2 or Keras 3 format
-                pass
-            
             model = tf.keras.models.load_model(
                 model_path,
                 compile=False,
                 safe_mode=False
             )
-            st.success("Model loaded successfully with safe_mode=False!")
+            st.success("✓ Model loaded successfully with safe_mode=False!")
         except:
             # Fallback: Load with default settings
             model = tf.keras.models.load_model(model_path, compile=False)
-            st.success("Model loaded successfully!")
+            st.success("✓ Model loaded successfully!")
         
         # Recompile the model with fresh optimizer
         model.compile(
@@ -150,20 +168,21 @@ def load_classification_model():
             st.warning("""
             **Model Compatibility Issue Detected**
             
-            The model was saved with an older TensorFlow/Keras version and is incompatible 
-            with the current version. To fix this:
+            The model was saved with an older TensorFlow/Keras version. 
             
-            1. Re-save the model using TensorFlow 2.16+ with:
-               ```python
-               model.save('model.h5', save_format='h5')
-               # or
-               model.save('model.keras')  # Recommended for Keras 3
-               ```
+            **To fix this, run this in your training notebook:**
+            ```python
+            import tensorflow as tf
             
-            2. Or export only the weights:
-               ```python
-               model.save_weights('model_weights.h5')
-               ```
+            # Load old model
+            model = tf.keras.models.load_model('wildlife_models/final_wildlife_model.h5', compile=False)
+            
+            # Save in new format
+            model.save('wildlife_models/final_wildlife_model_v2.keras')
+            
+            # Upload the new .keras file to Google Drive
+            ```
+            Then update the MODEL_URL with the new file link.
             """)
         return None
 
