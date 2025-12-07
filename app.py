@@ -112,9 +112,39 @@ def load_classification_model():
     model_path = 'wildlife_models/final_wildlife_model.h5'
     if not os.path.exists(model_path):
         return None
+    
+    try:
+        # Try loading with compile=False to avoid optimizer issues
+        model = load_model(model_path, compile=False)
         
-    model = load_model(model_path)
-    return model
+        # Recompile the model with a simple loss function
+        model.compile(
+            optimizer='adam',
+            loss='sparse_categorical_crossentropy',
+            metrics=['accuracy']
+        )
+        return model
+    except Exception as e:
+        st.error(f"Error loading model: {str(e)}")
+        # Try alternative loading method
+        try:
+            import h5py
+            # Load with custom settings
+            model = tf.keras.models.load_model(
+                model_path,
+                custom_objects=None,
+                compile=False,
+                safe_mode=False
+            )
+            model.compile(
+                optimizer='adam',
+                loss='sparse_categorical_crossentropy',
+                metrics=['accuracy']
+            )
+            return model
+        except Exception as e2:
+            st.error(f"Alternative loading also failed: {str(e2)}")
+            return None
 
 @st.cache_data
 def load_class_names():
