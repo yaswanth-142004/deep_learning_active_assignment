@@ -20,10 +20,11 @@ st.set_page_config(
 )
 
 # Model download URL - Replace this with your actual file URL
-# For Google Drive: Use direct download link
+# For Google Drive: Use direct download link and add .keras or .h5 at the end
+# Example: 'https://drive.google.com/file/d/YOUR_FILE_ID/view?usp=sharing.keras'
 # For Dropbox: Replace ?dl=0 with ?dl=1
 # For GitHub Releases: Use the release asset URL
-# IMPORTANT: Add .keras or .h5 at the end to specify format
+# IMPORTANT: The .keras extension signals the file format
 MODEL_URL = os.environ.get('MODEL_URL', 'https://drive.google.com/file/d/1w3avcoCrXwvHTaETNfvXZlfqbXPhoBS2/view?usp=sharing.keras')  # Set this in Streamlit Cloud secrets or environment
 
 def download_model(url, destination):
@@ -43,22 +44,27 @@ def download_model(url, destination):
                 st.error("Invalid Google Drive URL format")
                 return False
             
-            # Use gdown with fuzzy mode for better compatibility
+            # Use gdown with explicit output path
             download_url = f'https://drive.google.com/uc?id={file_id}'
             try:
-                # Try with fuzzy=True to handle virus scan warning better
+                # Download with explicit output parameter
                 gdown.download(download_url, destination, quiet=False, fuzzy=True)
                 
-                # Verify the downloaded file is valid
+                # Verify the downloaded file
                 if os.path.exists(destination):
                     file_size = os.path.getsize(destination)
+                    st.info(f"Downloaded file size: {file_size / (1024*1024):.2f} MB")
+                    
                     if file_size < 10 * 1024 * 1024:  # Less than 10MB is suspicious
-                        st.warning(f"Downloaded file is only {file_size / (1024*1024):.2f} MB. Retrying with alternative method...")
-                        os.remove(destination)
-                        # Try alternative download
-                        gdown.cached_download(download_url, destination, quiet=False)
-                
-                return True
+                        st.warning(f"Downloaded file seems too small. This might be an error page from Google Drive.")
+                        st.info("Make sure your file is shared as 'Anyone with the link can view'")
+                        return False
+                    
+                    return True
+                else:
+                    st.error(f"File not found after download: {destination}")
+                    return False
+                    
             except Exception as e:
                 st.error(f"gdown failed: {str(e)}")
                 return False
