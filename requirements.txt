@@ -1,7 +1,9 @@
 streamlit
-tensorflow>=2.16.1
+tensorflow>=2.16
 numpy
 pillow
 requests
 gdown
 h5py
+
+
