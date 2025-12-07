@@ -1,9 +1,6 @@
 streamlit
-tensorflow<2.16
+tensorflow==2.15.0
+h5py
 numpy
 pillow
-requests
 gdown
-h5py
-
-
