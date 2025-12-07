@@ -23,7 +23,7 @@ st.set_page_config(
 # For Google Drive: Use direct download link
 # For Dropbox: Replace ?dl=0 with ?dl=1
 # For GitHub Releases: Use the release asset URL
-MODEL_URL = os.environ.get('MODEL_URL', 'https://drive.google.com/uc?export=download&id=147a4ElVj6Pg2m9k26REa98iCrzxKb4Hx')  # Set this in Streamlit Cloud secrets or environment
+MODEL_URL = os.environ.get('MODEL_URL', 'https://drive.google.com/file/d/1w3avcoCrXwvHTaETNfvXZlfqbXPhoBS2/view?usp=sharing')  # Set this in Streamlit Cloud secrets or environment
 
 def download_model(url, destination):
     """Download model file from URL"""
@@ -42,10 +42,25 @@ def download_model(url, destination):
                 st.error("Invalid Google Drive URL format")
                 return False
             
-            # Use gdown for reliable Google Drive downloads
+            # Use gdown with fuzzy mode for better compatibility
             download_url = f'https://drive.google.com/uc?id={file_id}'
-            gdown.download(download_url, destination, quiet=False)
-            return True
+            try:
+                # Try with fuzzy=True to handle virus scan warning better
+                gdown.download(download_url, destination, quiet=False, fuzzy=True)
+                
+                # Verify the downloaded file is valid
+                if os.path.exists(destination):
+                    file_size = os.path.getsize(destination)
+                    if file_size < 10 * 1024 * 1024:  # Less than 10MB is suspicious
+                        st.warning(f"Downloaded file is only {file_size / (1024*1024):.2f} MB. Retrying with alternative method...")
+                        os.remove(destination)
+                        # Try alternative download
+                        gdown.cached_download(download_url, destination, quiet=False)
+                
+                return True
+            except Exception as e:
+                st.error(f"gdown failed: {str(e)}")
+                return False
         else:
             # Regular download for other URLs
             response = requests.get(url, stream=True)
@@ -72,8 +87,8 @@ def decompress_model_if_needed():
     # Try both .keras and .h5 formats
     keras_model_path = 'wildlife_models/final_wildlife_model.keras'
     h5_model_path = 'wildlife_models/final_wildlife_model.h5'
-    compressed_path = 'wildlife_models/final_wildlife_model.h5.gz'
-    keras_compressed_path = 'wildlife_models/final_wildlife_model.keras.gz'
+    compressed_h5_path = 'wildlife_models/final_wildlife_model.h5.gz'
+    compressed_keras_path = 'wildlife_models/final_wildlife_model.keras.gz'
     
     # Create directory if it doesn't exist
     Path('wildlife_models').mkdir(exist_ok=True)
@@ -83,39 +98,47 @@ def decompress_model_if_needed():
         return True
     
     # If model doesn't exist, try to decompress or download
-    if os.path.exists(compressed_path):
-        with st.spinner('Decompressing model file...'):
-            with gzip.open(compressed_path, 'rb') as f_in:
-                with open(h5_model_path, 'wb') as f_out:
+    if os.path.exists(compressed_keras_path):
+        with st.spinner('Decompressing Keras model file...'):
+            with gzip.open(compressed_keras_path, 'rb') as f_in:
+                with open(keras_model_path, 'wb') as f_out:
                     shutil.copyfileobj(f_in, f_out)
         return True
-    elif os.path.exists(keras_compressed_path):
-        with st.spinner('Decompressing model file...'):
-            with gzip.open(keras_compressed_path, 'rb') as f_in:
-                with open(keras_model_path, 'wb') as f_out:
+    elif os.path.exists(compressed_h5_path):
+        with st.spinner('Decompressing H5 model file...'):
+            with gzip.open(compressed_h5_path, 'rb') as f_in:
+                with open(h5_model_path, 'wb') as f_out:
                     shutil.copyfileobj(f_in, f_out)
         return True
     elif MODEL_URL:
         with st.spinner('Downloading model file (this may take a few minutes)...'):
-            # Determine destination based on URL
-            if '.keras' in MODEL_URL:
-                destination = keras_model_path if not MODEL_URL.endswith('.gz') else keras_compressed_path
+            # Determine destination based on URL extension
+            if '.keras' in MODEL_URL or 'keras' in MODEL_URL.lower():
+                if MODEL_URL.endswith('.gz'):
+                    destination = compressed_keras_path
+                    final_path = keras_model_path
+                else:
+                    destination = keras_model_path
+                    final_path = None
             else:
-                destination = h5_model_path if not MODEL_URL.endswith('.gz') else compressed_path
+                if MODEL_URL.endswith('.gz'):
+                    destination = compressed_h5_path
+                    final_path = h5_model_path
+                else:
+                    destination = h5_model_path
+                    final_path = None
             
             if download_model(MODEL_URL, destination):
                 # Decompress if needed
-                if destination.endswith('.gz'):
-                    final_path = destination[:-3]  # Remove .gz extension
+                if destination.endswith('.gz') and final_path:
                     with gzip.open(destination, 'rb') as f_in:
                         with open(final_path, 'wb') as f_out:
                             shutil.copyfileobj(f_in, f_out)
                 return True
+            return False
     else:
         st.error("Model file not found. Please upload the model or set MODEL_URL.")
         return False
-    
-    return False
 
 # Load the model and class names
 @st.cache_resource
@@ -137,6 +160,36 @@ def load_classification_model():
         import h5py
         
         st.info(f"Loading model from: {os.path.basename(model_path)}")
+        
+        # Check file size and validate it's a proper file
+        file_size = os.path.getsize(model_path)
+        st.info(f"Model file size: {file_size / (1024*1024):.2f} MB")
+        
+        if file_size < 1024 * 1024:  # Less than 1MB is suspicious
+            st.error("Downloaded file is too small. It may be an error page from Google Drive.")
+            st.warning("""
+            **Google Drive Download Issue**
+            
+            The file downloaded is too small to be the actual model. This usually means:
+            1. The Google Drive link is incorrect
+            2. The file permissions are not set to "Anyone with the link can view"
+            3. Google Drive returned an error page instead of the file
+            
+            Please verify:
+            - Your Google Drive link is publicly accessible
+            - You're using the correct file ID
+            - The file in Google Drive is the actual .keras or .h5 model file
+            """)
+            return None
+        
+        # Verify it's a valid HDF5 file
+        try:
+            with h5py.File(model_path, 'r') as f:
+                st.success(f"✓ Valid HDF5 file detected")
+        except Exception as e:
+            st.error(f"File is not a valid HDF5/Keras model: {str(e)}")
+            st.warning("The downloaded file might be an HTML error page. Check your Google Drive sharing settings.")
+            return None
         
         # Try loading with safe_mode=False for compatibility
         try:
@@ -164,25 +217,30 @@ def load_classification_model():
         st.error(f"Error loading model: {error_msg}")
         
         # Provide helpful error message
-        if "Invalid dtype" in error_msg or "tuple" in error_msg:
+        if "file signature not found" in error_msg.lower():
             st.warning("""
-            **Model Compatibility Issue Detected**
+            **Download Error: Invalid File**
             
-            The model was saved with an older TensorFlow/Keras version. 
+            The downloaded file is not a valid model file. This typically means Google Drive 
+            returned an HTML page instead of your file.
             
-            **To fix this, run this in your training notebook:**
+            **Solutions:**
+            1. Make sure your file is shared as "Anyone with the link can view"
+            2. Try using the .keras format instead of .h5
+            3. Use a different file hosting service (Dropbox, Hugging Face, etc.)
+            4. For local testing, place the model file directly in: wildlife_models/
+            """)
+        elif "Invalid dtype" in error_msg or "tuple" in error_msg:
+            st.warning("""
+            **Model Compatibility Issue**
+            
+            Run this in your training notebook to convert the model:
             ```python
             import tensorflow as tf
-            
-            # Load old model
             model = tf.keras.models.load_model('wildlife_models/final_wildlife_model.h5', compile=False)
-            
-            # Save in new format
             model.save('wildlife_models/final_wildlife_model_v2.keras')
-            
-            # Upload the new .keras file to Google Drive
             ```
-            Then update the MODEL_URL with the new file link.
+            Then upload the .keras file to Google Drive.
             """)
         return None
 
